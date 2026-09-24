@@ -19,6 +19,24 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include QMK_KEYBOARD_H
 
 #include "quantum.h"
+#include "pointer_acceleration.h"
+#include "scroll_scale.h"
+
+static const pointer_acceleration_config_t pointer_acceleration_config = {
+    .enabled           = KEYBALL_POINTER_ACCEL_ENABLED,
+    .low_gain_percent  = KEYBALL_POINTER_ACCEL_LOW_GAIN_PERCENT,
+    .mid_gain_percent  = KEYBALL_POINTER_ACCEL_MID_GAIN_PERCENT,
+    .high_gain_percent = KEYBALL_POINTER_ACCEL_HIGH_GAIN_PERCENT,
+    .start_speed_mm_s  = KEYBALL_POINTER_ACCEL_START_SPEED_MM_S,
+    .mid_speed_mm_s    = KEYBALL_POINTER_ACCEL_MID_SPEED_MM_S,
+    .full_speed_mm_s   = KEYBALL_POINTER_ACCEL_FULL_SPEED_MM_S,
+};
+
+// Track each physical side independently, regardless of the USB connection side.
+static pointer_acceleration_state_t pointer_acceleration_states[2];
+
+// Scroll scaling runs once on the combined report, after both halves.
+static scroll_scale_state_t scroll_scale_state;
 
 // clang-format on
 const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
@@ -82,12 +100,57 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 };
 // clang-format on
 
+static void reset_pointer_acceleration(void) {
+    const uint32_t now = timer_read32();
+    pointer_acceleration_reset(&pointer_acceleration_states[0], now);
+    pointer_acceleration_reset(&pointer_acceleration_states[1], now);
+}
+
+void keyboard_post_init_user(void) {
+    reset_pointer_acceleration();
+    scroll_scale_reset(&scroll_scale_state);
+}
+
+void keyball_on_apply_motion_to_mouse_move(keyball_motion_t *motion, report_mouse_t *report, bool is_left) {
+    // Keyball calls the hook for BOTH halves, even when one has no sensor.
+    // Ignore that empty source without advancing the real ball's clock or
+    // overwriting a cursor report already produced by the other half.
+    const bool has_ball = is_left == is_keyboard_left() ? keyball.this_have_ball : keyball.that_have_ball;
+    if (!has_ball) {
+        motion->x = 0;
+        motion->y = 0;
+        return;
+    }
+
+    // keyball_get_cpi() returns units of 100 CPI (despite its old API comment).
+    const uint16_t cpi = (uint16_t)keyball_get_cpi() * 100;
+    pointer_acceleration_apply(&pointer_acceleration_config, &pointer_acceleration_states[is_left ? 0 : 1], timer_read32(), cpi, &motion->x, &motion->y);
+
+    // Preserve Keyball39's existing sensor orientation. Values are symmetric
+    // +/-32767, so negation is safe for a trackball on the left half too.
+    report->x = is_left ? -motion->y : motion->y;
+    report->y = is_left ? -motion->x : motion->x;
+    motion->x = 0;
+    motion->y = 0;
+}
+
+report_mouse_t pointing_device_task_user(report_mouse_t report) {
+    // Keep Keyball's direction and snapping; never scale cursor axes or buttons.
+    scroll_scale_apply(KEYBALL_SCROLL_GAIN_PERCENT, &scroll_scale_state, &report.h, &report.v);
+    return report;
+}
+
 layer_state_t layer_state_set_user(layer_state_t state) {
     // レイヤー1とレイヤー2の同時押しで3レイヤーに移動する
     state = update_tri_layer_state(state, 1, 2, 3);
 
     // レイヤー2に移動したときにスクロールモードを有効にする
-    keyball_set_scroll_mode(get_highest_layer(state) == 2);
+    const bool scroll_mode = get_highest_layer(state) == 2;
+    if (scroll_mode != keyball_get_scroll_mode()) {
+        reset_pointer_acceleration();
+        scroll_scale_reset(&scroll_scale_state);
+    }
+    keyball_set_scroll_mode(scroll_mode);
     return state;
 }
 
