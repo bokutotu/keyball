@@ -13,14 +13,14 @@ jobs:
 
   deploy:
     name: Deploy firmwares
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs:
     - build
 
     steps:
 
     - name: Checkout source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: Archive Keyball39 firmwares
       uses: ./.github/actions/release-archive

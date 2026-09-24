@@ -35,8 +35,10 @@ const uint16_t AML_TIMEOUT_QU  = 50;   // Quantization Unit
 
 // static const char BL = '\xB0'; // Blank indicator character
 #define BL 0xB0
+#ifdef OLED_ENABLE
 static const char LFSTR_ON[] PROGMEM = "\xB2\xB3";
 static const char LFSTR_OFF[] PROGMEM = "\xB4\xB5";
+#endif
 
 keyball_t keyball = {
     .this_have_ball = false,
@@ -412,7 +414,7 @@ void keyball_oled_render_ballinfo(void) {
     oled_write(format_4d(keyball_get_cpi()) + 1, false);
     oled_write_P(PSTR("00 "), false);
 
-    // indicate scroll snap mode: "VT" (vertical), "HN" (horiozntal), and "SCR" (free)
+    // indicate scroll snap mode: "VT" (vertical), "HO" (horizontal), and "SCR" (free)
 #if 1 && KEYBALL_SCROLLSNAP_ENABLE == 2
     switch (keyball_get_scrollsnap_mode()) {
         case KEYBALL_SCROLLSNAP_MODE_VERTICAL:
@@ -607,6 +609,7 @@ void housekeeping_task_kb(void) {
 #endif
 
 static void pressing_keys_update(uint16_t keycode, keyrecord_t *record) {
+#ifdef OLED_ENABLE
     // Process only valid keycodes.
     if (keycode >= 4 && keycode < 57) {
         char value = pgm_read_byte(code_to_name + keycode - 4);
@@ -624,6 +627,7 @@ static void pressing_keys_update(uint16_t keycode, keyrecord_t *record) {
             }
         }
     }
+#endif
 }
 
 #ifdef POINTING_DEVICE_AUTO_MOUSE_ENABLE
